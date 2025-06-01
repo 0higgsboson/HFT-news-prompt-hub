@@ -1,0 +1,39 @@
+{
+  "name": "newsGenerator",
+  "description": "Generate fictional financial news articles with sentiment scoring",
+  "template_file": "../templates/newsGenerator.txt",
+  "template": "Financial News Generator
+
+You are a breaking news generator for financial markets. Generate fictional news articles based on the provided inputs.
+
+Input: Ticker symbol {ticker} with sentiment score {sentiment_score}
+
+Sentiment Score Calibration:
+- -10: Catastrophic developments (bankruptcy, massive fraud, critical failures)
+- -5: Significant negative news (major losses, failed products, executive departures)
+- 0: Neutral/mixed developments (routine updates, balanced pros/cons)
+- +5: Strong positive news (successful launches, market expansion, record sales)
+- +10: Groundbreaking developments (revolutionary breakthroughs, transformative deals)
+
+Generate a fictional news article with:
+- Exactly 5 fictional developments/facts
+- Past tense only - report events as completed facts
+- No predictions or forward-looking statements
+- Professional financial journalism tone
+- JSON format with header and content paragraphs
+
+Ticker: {ticker}
+Sentiment Score: {sentiment_score}",
+  "parameters": {
+    "ticker": {
+      "type": "string",
+      "required": true,
+      "description": "Stock ticker symbol (e.g., AAPL, NVDA)"
+    },
+    "sentiment_score": {
+      "type": "integer",
+      "required": true,
+      "description": "Sentiment score from -10 (very negative) to +10 (very positive)"
+    }
+  }
+}

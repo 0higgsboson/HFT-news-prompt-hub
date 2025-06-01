@@ -12,6 +12,100 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import importlib.util
+import requests
+from abc import ABC, abstractmethod
+
+class LLMProvider(ABC):
+    """Base class for LLM providers"""
+    
+    @abstractmethod
+    def generate(self, prompt: str, **kwargs) -> str:
+        pass
+    
+    @abstractmethod
+    def is_available(self) -> bool:
+        pass
+
+class AnthropicProvider(LLMProvider):
+    def __init__(self):
+        self.api_key = os.getenv('ANTHROPIC_API_KEY')
+        self.base_url = 'https://api.anthropic.com/v1/messages'
+        
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    def generate(self, prompt: str, model: str = 'claude-3-5-sonnet-20241022', **kwargs) -> str:
+        if not self.is_available():
+            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+            
+        headers = {
+            'x-api-key': self.api_key,
+            'content-type': 'application/json',
+            'anthropic-version': '2023-06-01'
+        }
+        
+        data = {
+            'model': model,
+            'max_tokens': kwargs.get('max_tokens', 4000),
+            'messages': [{'role': 'user', 'content': prompt}]
+        }
+        
+        response = requests.post(self.base_url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        return response.json()['content'][0]['text']
+
+class OpenAIProvider(LLMProvider):
+    def __init__(self):
+        self.api_key = os.getenv('OPENAI_API_KEY')
+        self.base_url = 'https://api.openai.com/v1/chat/completions'
+        
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    def generate(self, prompt: str, model: str = 'gpt-4', **kwargs) -> str:
+        if not self.is_available():
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+            
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_tokens': kwargs.get('max_tokens', 4000)
+        }
+        
+        response = requests.post(self.base_url, headers=headers, json=data)
+        response.raise_for_status()
+        
+        return response.json()['choices'][0]['message']['content']
+
+class GeminiProvider(LLMProvider):
+    def __init__(self):
+        self.api_key = os.getenv('GOOGLE_API_KEY')
+        
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
+    def generate(self, prompt: str, model: str = 'gemini-pro', **kwargs) -> str:
+        if not self.is_available():
+            raise ValueError("GOOGLE_API_KEY environment variable not set")
+            
+        url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}'
+        
+        data = {
+            'contents': [{
+                'parts': [{'text': prompt}]
+            }]
+        }
+        
+        response = requests.post(url, json=data)
+        response.raise_for_status()
+        
+        return response.json()['candidates'][0]['content']['parts'][0]['text']
 
 class PromptManager:
     def __init__(self, config_path: str = "config.yaml"):
@@ -19,6 +113,26 @@ class PromptManager:
         self.config = self.load_config()
         self.prompts_dir = Path(self.config.get('prompts_dir', 'prompts'))
         self.wrappers_dir = Path(self.config.get('wrappers_dir', 'wrappers'))
+        
+        # Initialize LLM providers
+        self.providers = {
+            'anthropic': AnthropicProvider(),
+            'openai': OpenAIProvider(),
+            'gemini': GeminiProvider()
+        }
+        
+        # Model to provider mapping
+        self.model_mapping = {
+            'claude-3-5-sonnet-20241022': 'anthropic',
+            'claude-3-5-sonnet': 'anthropic',
+            'claude-3-sonnet': 'anthropic',
+            'claude-3-haiku': 'anthropic',
+            'gpt-4': 'openai',
+            'gpt-4-turbo': 'openai',
+            'gpt-3.5-turbo': 'openai',
+            'gemini-pro': 'gemini',
+            'gemini-1.5-pro': 'gemini'
+        }
         
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from YAML file."""
@@ -34,10 +148,11 @@ class PromptManager:
             'prompts_dir': 'prompts',
             'wrappers_dir': 'wrappers',
             'output_dir': 'output',
-            'default_model': 'gpt-3.5-turbo',
+            'default_model': 'claude-3-5-sonnet-20241022',
             'api_keys': {
-                'openai': 'your-openai-key-here',
-                'anthropic': 'your-anthropic-key-here'
+                'openai': 'set-OPENAI_API_KEY-env-var',
+                'anthropic': 'set-ANTHROPIC_API_KEY-env-var',
+                'google': 'set-GOOGLE_API_KEY-env-var'
             },
             'default_params': {
                 'temperature': 0.7,
@@ -80,30 +195,54 @@ class PromptManager:
         spec.loader.exec_module(module)
         return module
     
-    def execute_prompt(self, prompt_name: str, **kwargs) -> str:
-        """Execute a prompt with its wrapper."""
+    def get_provider_for_model(self, model: str) -> LLMProvider:
+        """Get the appropriate provider for a model."""
+        provider_name = self.model_mapping.get(model)
+        if not provider_name:
+            # Default to anthropic for unknown models
+            provider_name = 'anthropic'
+            
+        provider = self.providers[provider_name]
+        if not provider.is_available():
+            # Fallback to any available provider
+            for fallback_provider in self.providers.values():
+                if fallback_provider.is_available():
+                    return fallback_provider
+            raise ValueError("No LLM providers available. Please set API keys in environment variables.")
+            
+        return provider
+    
+    def execute_prompt(self, prompt_name: str, model: str = None, **kwargs) -> str:
+        """Execute a prompt with LLM provider."""
         prompt_config = self.load_prompt(prompt_name)
-        wrapper_name = prompt_config.get('wrapper', prompt_name)
         
+        # Use specified model or default
+        if not model:
+            model = self.config.get('default_model', 'claude-3-5-sonnet-20241022')
+            
+        # Try wrapper first
+        wrapper_name = prompt_config.get('wrapper', prompt_name)
         try:
             wrapper_module = self.load_wrapper(wrapper_name)
             if hasattr(wrapper_module, 'execute'):
-                return wrapper_module.execute(prompt_config, self.config, **kwargs)
-            else:
-                raise AttributeError(f"Wrapper '{wrapper_name}' missing execute function")
+                return wrapper_module.execute(prompt_config, self.config, model=model, **kwargs)
         except FileNotFoundError:
-            # Fallback to basic execution
-            return self.basic_execute(prompt_config, **kwargs)
+            pass
+            
+        # Fallback to LLM execution
+        return self.llm_execute(prompt_config, model, **kwargs)
     
-    def basic_execute(self, prompt_config: Dict[str, Any], **kwargs) -> str:
-        """Basic prompt execution without custom wrapper."""
+    def llm_execute(self, prompt_config: Dict[str, Any], model: str, **kwargs) -> str:
+        """Execute prompt using LLM provider."""
         template = prompt_config.get('template', '')
         
         # Simple template substitution
         for key, value in kwargs.items():
             template = template.replace(f"{{{key}}}", str(value))
         
-        return template
+        # Get provider and generate response
+        provider = self.get_provider_for_model(model)
+        return provider.generate(template, model=model, **kwargs)
 
 def main():
     parser = argparse.ArgumentParser(description='Prompt CLI Application')
@@ -112,6 +251,7 @@ def main():
     parser.add_argument('--config', '-c', default='config.yaml', help='Config file path')
     parser.add_argument('--output', '-o', help='Output file')
     parser.add_argument('--vars', '-v', nargs='*', help='Variables in key=value format')
+    parser.add_argument('--model', '-m', help='LLM model to use (default: claude-3-5-sonnet-20241022)')
     
     args = parser.parse_args()
     
@@ -142,7 +282,7 @@ def main():
                     variables[key] = value
         
         try:
-            result = pm.execute_prompt(args.prompt, **variables)
+            result = pm.execute_prompt(args.prompt, model=args.model, **variables)
             
             if args.output:
                 with open(args.output, 'w') as f:
