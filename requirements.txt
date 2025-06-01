@@ -1,0 +1,18 @@
+# Core dependencies
+pyyaml>=6.0
+requests>=2.28.0
+
+# Optional: Enhanced CLI support
+click>=8.0.0
+
+# Optional: Template engine support
+jinja2>=3.1.0
+
+# Optional: Data validation
+pydantic>=2.0.0
+
+# Development dependencies (install with: pip install -r requirements.txt -r requirements-dev.txt)
+# pytest>=7.0.0
+# black>=22.0.0
+# flake8>=5.0.0
+# mypy>=1.0.0

@@ -1,0 +1,43 @@
+# HFT News Prompt Hub Configuration
+# Copy this file to config.yaml and customize as needed
+
+# Directory paths
+prompts_dir: prompts
+wrappers_dir: wrappers
+output_dir: output
+
+# Default LLM model (will use environment variables for API keys)
+default_model: claude-3-5-sonnet-20241022
+
+# API key placeholders (set actual keys as environment variables)
+api_keys:
+  # Set these as environment variables:
+  # export ANTHROPIC_API_KEY="your-key-here"
+  # export OPENAI_API_KEY="your-key-here" 
+  # export GOOGLE_API_KEY="your-key-here"
+  openai: set-OPENAI_API_KEY-env-var
+  anthropic: set-ANTHROPIC_API_KEY-env-var
+  google: set-GOOGLE_API_KEY-env-var
+
+# Default parameters for LLM requests
+default_params:
+  temperature: 0.7
+  max_tokens: 4000
+
+# Model-specific overrides (optional)
+model_params:
+  claude-3-5-sonnet-20241022:
+    temperature: 0.3
+    max_tokens: 4000
+  gpt-4:
+    temperature: 0.5
+    max_tokens: 4000
+  gemini-pro:
+    temperature: 0.4
+    max_tokens: 4000
+
+# Logging configuration (optional)
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: logs/prompt_manager.log
